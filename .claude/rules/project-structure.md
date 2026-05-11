@@ -1,6 +1,6 @@
 # Project Folder Structure
 
-version 7
+version 8
 
 `.volt/` is a **1:1 mirror of the project's Notion workspace**. Built and
 maintained by the `volt-notion-sync` CLI (`.volt/.cli/volt-notion-sync.cjs`,
@@ -39,12 +39,21 @@ under `extensions/<task-id>/...`. See "Code & raw test data" below.
     ├── meetings/_index.json
     ├── waterfall-tasks/
     │   ├── _index.json                 ← schema (databaseId, dataSourceId, properties)
-    │   ├── <row-slug>.md               ← one file per row (frontmatter + body)
-    │   └── <row-slug>/                 ← child pages of a row (only when body-heavy)
-    │       ├── FDD.md
-    │       ├── TDD.md
-    │       ├── Documentation.md
-    │       └── test-report.md
+    │   ├── extension/                  ← Extension-type rows (SINGULAR — see note below)
+    │   │   ├── email-4.md              ← row body (= the Overview tab in the platform UI)
+    │   │   ├── email-4/                ← child-page folder, same slug as the row file
+    │   │   │   ├── FDD.md              ← Functional Design Document
+    │   │   │   ├── TDD.md              ← Technical Design Document
+    │   │   │   ├── Documentation.md    ← end-user documentation
+    │   │   │   ├── test-report.md      ← latest test run summary
+    │   │   │   └── assets/             ← screenshots / images linked from the .md files
+    │   │   ├── fa.md                   ← another row — early-stage (only FDD started)
+    │   │   └── fa/
+    │   │       └── FDD.md
+    │   ├── reports/                    ← Report-type rows (PLURAL — naming quirk, not a typo)
+    │   ├── integrations/index.md       ← resource intro page (no rows of this type yet)
+    │   ├── migrations/index.md         ← resource intro page
+    │   └── issues/index.md             ← resource intro page (open issues live in the `issues/` DB)
     ├── issues/_index.json
     ├── sprints/_index.json
     ├── milestones/_index.json
@@ -63,6 +72,53 @@ The 14 databases above match the **Volt project Notion template** (Project
 Home → Settings → Quick Start Databases + the 3 user DBs under Settings).
 A given project may have a different list — always check the project's
 `.volt-sync.yml` for the authoritative database set.
+
+---
+
+## What each Notion folder is (read this before deciding where to look)
+
+These folders mirror the QuickStart methodology. If you don't know what
+something is, this is the short version — the long version lives in the
+`PM-Agent` quickstart-methodology skill.
+
+### Under `docs/` (Notion page trees, not databases)
+
+| Folder | What it holds |
+| --- | --- |
+| `docs/project-definition/` | Top-level scope artifacts from diagnostics: business model, systems model (As-Is / To-Be), scope, assumptions, diagnostics presentation. The "why this project exists" reference. |
+| `docs/process-flows/` | Narrative write-ups of the customer's business processes (driving vs. supporting, As-Is and To-Be). Pair these with the `process-flows` database rows when you need full context on a flow. |
+| `docs/waterfall-tasks/` | Resource pages introducing the four waterfall task types — see below — plus an `issues/` resource page. The actual rows live under `projectmanagement/waterfall-tasks/`. |
+
+### Under `projectmanagement/` (Notion databases — one folder per DB)
+
+| Database | Purpose |
+| --- | --- |
+| `waterfall-tasks/` | The build backlog. Four kinds, identified by the `Type` property on each row: **Extension** (BC AL customizations), **Integration** (data flows in/out of D365 — source, destination, direction, protocol), **Migration** (data loads from legacy/spreadsheet/email sources with cutover assumptions), **Report** (workspaces, Power BI, SSRS, etc.). Story points = total days of effort (design + doc + dev + test). |
+| `issues/` | Defects and gaps discovered during shadow/model/CRP. Frontmatter `properties.Is Complete` flips when closed. Gaps tracked by severity A>20d / B>10d / C>5d / D<5d. |
+| `phases/` | Top-level project phases (Diagnostics, Sprints, CRPs, Hypercare). Each phase has a `recVersion` for concurrency-safe updates. |
+| `milestones/` | Major dated checkpoints inside phases (CRP 1 / CRP 2 / CRP 3 / Go-Live, etc.). |
+| `sprints/` | The 4-week iterations under the Sprints phase. Each sprint has shadow / model / review-rehearse / show-and-tell weeks. |
+| `sprint-goals/` | Specific, measurable goals attached to a sprint ("model order entry and order modification"). Used to judge sprint pass/fail and CRP readiness. |
+| `process-flows/` | Database rows for each business process flow — driving or supporting. Joined to sprints via `sprint-process-flow-mapping` (see PM-Agent's `readSprintProcessFlowMapping`). |
+| `abstract-process-flows/` | Phase-level abstractions of process flows (used in multi-phase scoping at diagnostics). |
+| `project-members/` | Team roster — Sunrise consultants + customer team — with roles. |
+| `meetings/` | Scheduled meeting records (status, steering committee, show-and-tell, CRP, etc.). |
+| `transcripts/` | Raw meeting/discovery session transcripts. Heavy text — most useful as upstream input to a waterfall task (drop a relevant transcript into `<row-slug>/input/` if you need to feed it to an agent). |
+| `notes/` | Free-form project notes — typically created via `createProjectNote()` for daily/weekly summaries. |
+| `project-notes/` | Companion to `notes/` for longer-running project documentation. |
+| `subtasks/` | Sub-rows under waterfall-task rows when work needs to be split below story-point granularity. |
+
+**Where to look for what you need (developer agent perspective):**
+
+- "What am I building?" → `projectmanagement/waterfall-tasks/extension/<slug>.md` (the row body is the overview) + the four sub-pages in `extension/<slug>/`.
+- "Why are we building it?" → the row's frontmatter `properties` (Type, Phase, Sprint relation) plus the relevant `docs/process-flows/` and `docs/project-definition/` pages.
+- "Has the customer already raised this?" → search `projectmanagement/issues/*.md` by `properties.Process` or `properties.Sub Workflow`.
+- "Who owns this / when is it due?" → row frontmatter (`Sunrise Owner`, `Customer Owner`, `Sprint`, `Story Points`) and the linked sprint/milestone rows.
+- "What was discussed about this in a meeting?" → grep `projectmanagement/transcripts/` for the feature name; transcripts are big — don't ingest blindly.
+
+If a database in the table above is missing from a given project, that's
+fine — projects can drop DBs they don't use. Always confirm against
+`.volt-sync.yml` first.
 
 ---
 
@@ -122,7 +178,19 @@ after the row slug. Frontmatter on each child carries `parent_row_id`
 back-pointing at the row.
 
 The convention for a Waterfall Tasks **Extension** row is exactly four
-sub-pages:
+sub-pages, living inside a folder named after the row's slug. Concrete
+example: the "Email 4" extension is stored at
+
+```
+projectmanagement/waterfall-tasks/extension/
+├── email-4.md             ← row body (frontmatter + Overview content)
+└── email-4/               ← child-page folder (same slug, no .md)
+    ├── FDD.md
+    ├── TDD.md
+    ├── Documentation.md
+    ├── test-report.md
+    └── assets/            ← optional images referenced from the .md files
+```
 
 | Sub-page in Notion | Local file              | Audience / purpose               |
 | ------------------ | ----------------------- | -------------------------------- |
@@ -131,9 +199,46 @@ sub-pages:
 | `Documentation`    | `Documentation.md`      | End-user documentation           |
 | `test-report`      | `test-report.md`        | Latest test run summary (auto-updated by CI) |
 
+Rows that haven't reached every stage still follow the shape — e.g. the
+`fa` extension currently has only `fa.md` + `fa/FDD.md`. Don't create
+empty stub files; the platform's stage dots key off file presence.
+
+**Type-folder naming quirk:** Extensions land under `extension/`
+(singular), Reports under `reports/` (plural). This is wired in the
+platform's `KIND_FOLDER` map (`app/src/pages/ExtensionDetail.tsx`) — do
+not "normalize" it. Integrations and Migrations are folder placeholders
+today (just an `index.md`); when those row types start landing, expect
+them under `integrations/<slug>.md` and `migrations/<slug>.md` by the
+same nesting pattern.
+
 The row body itself (`<row-slug>.md`) carries the original brief +
 problem/solution from the Extension Template; the four sub-pages are the
-deeper artifacts.
+deeper artifacts. The platform UI surfaces these as tabs on the
+Extension Detail page (`Overview | FDD | TDD | Documentation | Test Report
+| Input`) — the row body is what shows up under "Overview".
+
+**Overview must link to its sub-pages.** Whenever you create or update
+any of FDD / TDD / Documentation / test-report, also update the **top of
+the row body** (`<row-slug>.md`) so it carries a small navigation block
+linking out to each artifact that exists. The customer reads the
+extension record in Notion — without these links they have to hunt
+through child pages manually. Put it directly under the H1, before any
+other content. Example:
+
+```markdown
+# Restaurant Module 2
+
+**Artifacts:** [FDD](./Restaurant-Module-2/FDD.md) ·
+[TDD](./Restaurant-Module-2/TDD.md) ·
+[Documentation](./Restaurant-Module-2/Documentation.md) ·
+[Test Report](./Restaurant-Module-2/test-report.md)
+
+> Original brief / problem / solution follows…
+```
+
+Only link the artifacts that exist on disk — don't fabricate dead links
+for stages that haven't run yet. On push, Notion turns these relative
+paths into proper sub-page links back to the child pages.
 
 **Filename casing**: slugify preserves case for child pages — uppercase
 acronyms in Notion (`FDD`, `TDD`) stay uppercase on disk; multi-word
@@ -200,10 +305,10 @@ Notion stays in the repo root, joined to its Notion row via the
 
 When working on extension `EXT-00099`:
 
-- **Read the spec**: `.volt/projectmanagement/waterfall-tasks/<slug>.md` + `<slug>/{FDD,TDD,Documentation,test-report}.md`
+- **Read the spec**: `.volt/projectmanagement/waterfall-tasks/extension/<slug>.md` + `extension/<slug>/{FDD,TDD,Documentation,test-report}.md`
 - **Write source code**: `extensions/EXT-00099/src/`
 - **Write raw test results**: `extensions/EXT-00099/test-results/run_*/...`
-- **Update test-report summary**: edit `<slug>/test-report.md` (auto-pushes to Notion on next sync)
+- **Update test-report summary**: edit `extension/<slug>/test-report.md` (auto-pushes to Notion on next sync)
 
 The `Task Id` frontmatter property on the row is the join key.
 
@@ -254,6 +359,12 @@ secret store. If a project has them locally, they live in
 5. **Source code and raw test data** go to `extensions/<task-id>/...`,
    never to `.volt/`. The `localIgnore` in `.volt-sync.yml` already
    excludes typical code paths but you should still keep the discipline.
+6. **Keep the overview's artifact links current.** Any time you create or
+   modify `FDD.md`, `TDD.md`, `Documentation.md`, or `test-report.md`
+   under a waterfall-task row, update the **Artifacts** line at the top
+   of that row's body (`<row-slug>.md`) so the Notion record shows live
+   links to every artifact that exists. Don't link files that don't
+   exist yet. See the "Overview must link to its sub-pages" note above.
 
 ## Forbidden moves
 
@@ -273,10 +384,10 @@ secret store. If a project has them locally, they live in
 | Ask | Read |
 |---|---|
 | "What does the workspace look like?" | `.volt-sync.yml` + each `_index.json` |
-| "What's the spec for EXT-00099?" | `projectmanagement/waterfall-tasks/<row-slug>.md` + `<row-slug>/{FDD,TDD}.md` |
+| "What's the spec for EXT-00099?" | `projectmanagement/waterfall-tasks/extension/<row-slug>.md` + `extension/<row-slug>/{FDD,TDD}.md` |
 | "Show me open issues" | `projectmanagement/issues/*.md` — filter by frontmatter `properties.Is Complete: false` |
 | "Where's the AL code for EXT-00099?" | `extensions/EXT-00099/src/` (repo root, outside `.volt/`) |
-| "What's the latest test result?" | `projectmanagement/waterfall-tasks/<row-slug>/test-report.md` (summary) + `extensions/EXT-00099/test-results/` (raw) |
+| "What's the latest test result?" | `projectmanagement/waterfall-tasks/extension/<row-slug>/test-report.md` (summary) + `extensions/EXT-00099/test-results/` (raw) |
 | "Add a new extension" | Notion UI: new row in Waterfall Tasks (type=Extension), then add 4 child pages: FDD / TDD / Documentation / test-report. Pull. |
 | "What automation does PM Task X run?" | `projectmanagement/pm-tasks/<row-slug>.md` body — if that DB exists in this project |
 | "Bootstrap a new client workspace" | `node .volt/.cli/volt-notion-sync.cjs bootstrap <starter-page-id>` |
