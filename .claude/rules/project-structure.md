@@ -52,7 +52,16 @@ under `extensions/<task-id>/...`. See "Code & raw test data" below.
     │   │       └── FDD.md
     │   ├── reports/                    ← Report-type rows (PLURAL — naming quirk, not a typo)
     │   ├── integrations/index.md       ← resource intro page (no rows of this type yet)
-    │   ├── migrations/index.md         ← resource intro page
+    │   ├── migration/                  ← Migration-type rows (SINGULAR — see migration entity layout below)
+    │   │   └── <entity>/               ← e.g. "customers", "vendors", "items"
+    │   │       ├── input/              ← drop the cleaned source file here (.csv or .xlsx)
+    │   │       ├── transformation/     ← (singular — `transformations/` plural is invalid)
+    │   │       │   ├── mapping.config.json   ← WRITTEN BY auto-import.ts; do not hand-author
+    │   │       │   └── transform.sql         ← WRITTEN BY auto-import.ts; do not hand-author
+    │   │       ├── output/
+    │   │       │   ├── output_latest.csv     ← WRITTEN BY auto-import.ts (BC-shaped CSV)
+    │   │       │   └── output_latest.txt     ← WRITTEN BY auto-import.ts (BC TABLEID payload)
+    │   │       └── auto-import-overrides.json   ← THE ONLY FILE YOU AUTHOR before running
     │   └── issues/index.md             ← resource intro page (open issues live in the `issues/` DB)
     ├── issues/_index.json
     ├── sprints/_index.json
@@ -204,12 +213,12 @@ Rows that haven't reached every stage still follow the shape — e.g. the
 empty stub files; the platform's stage dots key off file presence.
 
 **Type-folder naming quirk:** Extensions land under `extension/`
-(singular), Reports under `reports/` (plural). This is wired in the
-platform's `KIND_FOLDER` map (`app/src/pages/ExtensionDetail.tsx`) — do
-not "normalize" it. Integrations and Migrations are folder placeholders
-today (just an `index.md`); when those row types start landing, expect
-them under `integrations/<slug>.md` and `migrations/<slug>.md` by the
-same nesting pattern.
+(singular), Migrations under `migration/` (singular), Reports under
+`reports/` (plural). This is wired in the platform's `KIND_FOLDER` map
+(`app/src/pages/ExtensionDetail.tsx`) — do not "normalize" it.
+Integrations is a folder placeholder today (just an `index.md`); when
+that row type starts landing, expect rows under
+`integrations/<slug>.md` by the same nesting pattern.
 
 The row body itself (`<row-slug>.md`) carries the original brief +
 problem/solution from the Extension Template; the four sub-pages are the
@@ -244,6 +253,54 @@ paths into proper sub-page links back to the child pages.
 acronyms in Notion (`FDD`, `TDD`) stay uppercase on disk; multi-word
 titles can be controlled by the literal Notion title (rename the Notion
 page to `test-report` and the file lands as `test-report.md`).
+
+---
+
+## Migration entity layout
+
+Migration-type waterfall-task rows have a **different shape** from
+Extension rows: instead of four design-doc child pages, each entity gets
+a workspace with input data, generated transformation artifacts, and
+generated BC-shaped outputs. The Volt Consulting Platform's
+`MigrationService` reads these locations directly — anything outside
+this layout is invisible to the platform UI.
+
+```
+.volt/projectmanagement/waterfall-tasks/migration/
+  <entity>/                         ← e.g. "customers", "vendors", "items"
+    input/                          ← drop the cleaned source file here (.csv or .xlsx)
+    transformation/                 ← (singular — `transformations/` plural is invalid)
+      mapping.config.json           ← WRITTEN BY auto-import.ts; do not hand-author
+      transform.sql                 ← WRITTEN BY auto-import.ts; do not hand-author
+    output/
+      output_latest.csv             ← WRITTEN BY auto-import.ts (BC-shaped CSV)
+      output_latest.txt             ← WRITTEN BY auto-import.ts (BC TABLEID payload)
+    auto-import-overrides.json      ← THE ONLY FILE YOU AUTHOR before running
+```
+
+Rules:
+
+- **`auto-import.ts` (in `bc-migration-skill/scripts/`) is the canonical
+  pipeline.** It writes all four files under `transformation/` and
+  `output/` for you on attempt 1. Do **not** hand-author
+  `mapping.config.json` or `transform.sql` — re-run `auto-import.ts` to
+  regenerate.
+- Folder name is **`transformation/`** (singular) and the mapping
+  filename is **`mapping.config.json`** — both verbatim.
+  `mapping.json`, `transformations/` (plural), `fieldMappings.json`,
+  etc. are invisible to the platform.
+- Author only `auto-import-overrides.json` at the migration root. Use
+  `fieldOverrides` for source→target column aliasing, `skipFields` to
+  leave BC fields blank, and `defaults` for project-wide constants
+  (Country/Region Code, posting groups, Tax Liable, etc.) that have no
+  source column.
+- The only files the runtime reads under `transformation/` are
+  `mapping.config.json` (required) and `transform.sql` (optional DuckDB
+  override). **Do not write `.js`, `.ts`, or `.py` transform files** —
+  per-row transforms must be DuckDB SQL expressed via
+  `mapping.config.json`'s `mappings[]` entries
+  (`type: "direct" | "expression" | "valueMap" | "conditional" | "default"`,
+  with `duckdbExpression` for SQL fragments).
 
 ---
 
