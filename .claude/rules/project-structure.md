@@ -116,6 +116,7 @@ something is, this is the short version — the long version lives in the
 | `notes/` | Free-form project notes — typically created via `createProjectNote()` for daily/weekly summaries. |
 | `project-notes/` | Companion to `notes/` for longer-running project documentation. |
 | `subtasks/` | Sub-rows under waterfall-task rows when work needs to be split below story-point granularity. |
+| `cases/` | CRM-style support cases run as iterations against a shared plan. Each row is a folder `cases/{ticketSlug}/` with `case-{slug}.md` (header), **`plan.json`** (structured plan — the UI reads this directly), `input/`, and `iterations/iterationN/{diagnosis.md,output/}`. See the dedicated **Cases** section below for the plan.json schema. |
 
 **Where to look for what you need (developer agent perspective):**
 
@@ -301,6 +302,103 @@ Rules:
   `mapping.config.json`'s `mappings[]` entries
   (`type: "direct" | "expression" | "valueMap" | "conditional" | "default"`,
   with `duckdbExpression` for SQL fragments).
+
+---
+
+## Cases (CRM-style support iterations)
+
+A case is a customer support ticket the platform turns into a **series of
+iterations** against a single shared plan. Each iteration is one Claude session,
+one git branch, one execution. The plan persists across iterations — iteration
+N+1 reads what iteration N left and continues from where it stopped.
+
+### Folder layout
+
+```
+.volt/projectmanagement/cases/{ticketSlug}/
+├── case-{ticketSlug}.md         human-readable header (frontmatter + body)
+├── plan.json                    structured plan — single source of truth
+├── input/                       consultant-uploaded files (attachments, screenshots)
+└── iterations/
+    ├── iteration1/
+    │   ├── diagnosis.md         this iteration's running narrative
+    │   └── output/              deliverables (.csv, .md, .pdf, .xlsx, ...)
+    │       ├── report.pdf
+    │       └── reply-email.md
+    └── iteration2/...
+```
+
+There is **no `plan.md`** and **no `status.json`** anymore (legacy). The single
+file the platform reads for the case stepper is `plan.json`.
+
+### `plan.json` schema
+
+```json
+{
+  "schemaVersion": 1,
+  "updatedAt": "2026-05-15T22:14:00.000Z",
+  "current": { "phaseId": 2, "taskId": "2.3" },
+  "phases": [
+    {
+      "id": 1,
+      "title": "Environment & Audit",
+      "description": "Switch to RCR company and audit existing finance charge setup.",
+      "status": "completed",
+      "tasks": [
+        {
+          "id": "1.1",
+          "title": "Switch to RCR company",
+          "description": "Use bc_set_company to switch to CRONUS USA, Inc.",
+          "status": "completed",
+          "notes": "Found 2 existing FC Terms — neither has 60D grace."
+        }
+      ]
+    }
+  ]
+}
+```
+
+**Field reference:**
+
+| Field | Where | Required | Notes |
+|---|---|---|---|
+| `schemaVersion` | root | yes | Currently `1`. Bump only with a coordinated platform change. |
+| `updatedAt` | root | yes | ISO 8601 string. Bump on every write. |
+| `current` | root | yes (can be `null`) | Pointer to the task the agent is currently working on, or `null` between tasks. |
+| `phases[]` | root | yes | Ordered list. Use stable numeric `id`s starting at `1`. |
+| `phases[].id` | phase | yes | Integer. |
+| `phases[].title` | phase | yes | Short label. |
+| `phases[].description` | phase | optional | One-line intent. |
+| `phases[].status` | phase | yes | `pending` \| `in-progress` \| `completed` \| `failed` \| `skipped` |
+| `phases[].tasks[]` | phase | yes | Ordered list. Empty array is valid. |
+| `tasks[].id` | task | yes | String like `"1.1"`, `"1.2"`. Phase id + dot + per-phase ordinal. |
+| `tasks[].title` | task | yes | Short label. |
+| `tasks[].description` | task | optional | What the task does. |
+| `tasks[].status` | task | yes | Same enum as phase. |
+| `tasks[].notes` | task | optional | One-line annotation the agent leaves as it works. |
+
+### How to update `plan.json`
+
+1. **Read** `plan.json` at the start of every iteration.
+2. **Plan**: if it's empty, populate `phases[]` with your decomposition before doing any work.
+3. **Pick the next task**: find the first task with `status: "pending"` (or follow `current` if it's set).
+4. **Start it**: set that task's `status` to `"in-progress"`, set `current` to `{ phaseId, taskId }`, set `updatedAt`, **write the file**.
+5. **Do the work**: real BC operations, code, queries.
+6. **Annotate**: as you learn things, append a one-line `notes` field to the task. Do not write paragraphs here — those go in `diagnosis.md`.
+7. **Complete the task**: set `status` to `"completed"` (or `failed` / `skipped`), advance `current` to the next pending task (or `null`), set `updatedAt`, **write the file**.
+8. **Repeat** until you run out of pending tasks or hit a blocker.
+
+Free-form reasoning, screenshots inlined as base64, etc. go in
+`iterations/iteration{N}/diagnosis.md`. Concrete deliverables (CSV exports,
+PDF reports, scripts) go in `iterations/iteration{N}/output/`.
+
+### Forbidden in cases
+
+1. ❌ Writing `plan.md` or `status.json` — legacy. Use `plan.json` only.
+2. ❌ Writing free-form prose into `plan.json` — it must round-trip as JSON.
+3. ❌ Renumbering phase or task `id`s after the agent has committed them — iteration N+1 reads them.
+4. ❌ Editing `case-{ticketSlug}.md` body unless the consultant explicitly asked — that's the header, the platform writes it.
+5. ❌ Touching files in another case's folder.
 
 ---
 
